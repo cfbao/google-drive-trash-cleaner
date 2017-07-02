@@ -1,7 +1,9 @@
 # Google Drive Trash Cleaner
 Permanently delete files in Google Drive after X days in trash/bin.
 
-Google Drive doesn't offer the function to delete files after X days in trash/bin. This Python script helps you do this.
+Unlike many other cloud storage services, Google Drive doesn't auto delete files in trash/bin even after they've been there for a long time.
+There isn't even a way to check when a file was trashed.
+This Python script helps you clean your Google Drive's trash.
 
 ## Dependencies
 To use the Python script directly

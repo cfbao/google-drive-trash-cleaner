@@ -5,6 +5,7 @@ import argparse
 import time
 import calendar
 import logging
+import warnings
 
 from apiclient import discovery
 from apiclient.errors import HttpError
@@ -13,24 +14,25 @@ from oauth2client import tools
 from oauth2client.file import Storage
 
 if getattr(sys, 'frozen', False):
-	# running in a bundle
-    DIR_PATH = os.path.dirname(sys.executable)
+    # running in a bundle
+    CLEANER_PATH = sys.executable
 else:
     # running as a normal Python script
-    DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+    CLEANER_PATH = os.path.realpath(__file__)
+PAGE_TOKEN_FILE = os.path.join(os.path.dirname(CLEANER_PATH), 'page_token')
+CREDENTIAL_FILE = os.path.join(os.path.expanduser('~'), '.credentials', 'google-drive-trash-cleaner.json')
 
-PAGE_TOKEN_FILE = os.path.join(DIR_PATH, 'page_token')
-CREDENTIAL_DIR = os.path.join(os.path.expanduser('~'), '.credentials')
+CLIENT_CREDENTIAL = {
+    "client_id" : "359188752904-817oqa6dr7elufur5no09q585trpqf1l.apps.googleusercontent.com",
+    "client_secret" : "uZtsDf5vaUm8K-kZLZETmsYi",
+    "scope" : 'https://www.googleapis.com/auth/drive',
+    "redirect_uri" : "urn:ietf:wg:oauth:2.0:oob",
+    "token_uri" : "https://accounts.google.com/o/oauth2/token",
+    "auth_uri" : "https://accounts.google.com/o/oauth2/auth",
+    "revoke_uri" : "https://accounts.google.com/o/oauth2/revoke",
+    "pkce" : True
+}
 
-CLIENT_ID = "359188752904-817oqa6dr7elufur5no09q585trpqf1l.apps.googleusercontent.com"
-CLIENT_SECRET = "uZtsDf5vaUm8K-kZLZETmsYi"
-SCOPE = 'https://www.googleapis.com/auth/drive'
-REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
-TOKEN_URI = "https://accounts.google.com/o/oauth2/token"
-AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
-REVOKE_URI = "https://accounts.google.com/o/oauth2/revoke"
-
-LOG_NAME = 'dtad.log'
 PAGE_SIZE_LARGE = 1000
 PAGE_SIZE_SMALL = 100
 PAGE_SIZE_SWITCH_THRESHOLD = 3000
@@ -41,15 +43,34 @@ TIMEOUT_DEFAULT = 300
 class TimeoutError(Exception):
     pass
 
+class PageTokenFile:
+    def __init__(self, filePath):
+        os.makedirs(os.path.dirname(filePath), exist_ok=True)
+        self.path = filePath
+    
+    def get(self):
+        try:
+            with open(self.path, 'r', encoding='utf-8') as f:
+                pageToken = int(f.read())
+        except (FileNotFoundError, ValueError):
+            pageToken = 0
+        return pageToken
+    
+    def save(self, pageToken):
+        with open(self.path, 'w', encoding='utf-8') as f:
+            f.write(str(pageToken))
+
 def main():
     flags = parse_cmdline()
-    logger = configure_logs(flags.logDir)
+    logger = configure_logs(flags.logfile)
+    pageTokenFile = PageTokenFile(flags.ptokenfile)
     for i in range(RETRY_NUM):
         try:
             service = build_service(flags)
-            pageToken = get_stored_token()
-            deletionList, futurePageToken = get_deletion_list(
-                            service, pageToken, flags.days, flags.timeout)
+            pageToken = pageTokenFile.get()
+            deletionList, pageTokenBefore, pageTokenAfter = \
+                get_deletion_list(service, pageToken, flags.days, flags.timeout)
+            pageTokenFile.save(pageTokenBefore)
             listEmpty = delete_old_files(service, deletionList, flags)
         except client.HttpAccessTokenRefreshError:
             print('Authentication error')
@@ -67,22 +88,34 @@ def main():
         return
     
     if listEmpty:
-        store_future_token(futurePageToken)
+        pageTokenFile.save(pageTokenAfter)
 
 def parse_cmdline():
-    parser = argparse.ArgumentParser(parents=[tools.argparser])
+    parser = argparse.ArgumentParser()
+    # flags required by oauth2client.tools.run_flow(), hidden
+    parser.add_argument('--auth_host_name', action='store', default='localhost', help=argparse.SUPPRESS)
+    parser.add_argument('--noauth_local_webserver', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--auth_host_port', action='store', nargs='*', default=[8080, 8090], type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--logging_level', action='store', default='ERROR', 
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help=argparse.SUPPRESS)
+    # flags defined by cleaner.py
     parser.add_argument('-a', '--auto', action='store_true', 
-            help='Automatically deletes older trashed files in Google Drive '
+            help='Automatically delete older trashed files in Google Drive '
                  'without prompting user for confirmation')
     parser.add_argument('-v', '--view', action='store_true', 
             help='Only view which files are to be deleted without deleting them')
-    parser.add_argument('-d', '--days', action='store', type=int, default=30, metavar='D',
+    parser.add_argument('-d', '--days', action='store', type=int, default=30, metavar='#',
             help='Number of days files can remain in Google Drive trash '
-                 'before being deleted. Default is 30')
-    parser.add_argument('-t', '--timeout', action='store', type=int, default=TIMEOUT_DEFAULT, metavar='T',
-            help='Specify timeout period in seconds. Default is {:d}'.format(TIMEOUT_DEFAULT))
-    parser.add_argument('-l', '--logDir', action='store', metavar='LOG_PATH',
-            help='Directory of log file. Default is no logs')
+                 'before being deleted. Default is %(default)s')
+    parser.add_argument('-t', '--timeout', action='store', type=int, default=TIMEOUT_DEFAULT, metavar='SECS',
+            help='Specify timeout period in seconds. Default is %(default)s')
+    parser.add_argument('--logfile', action='store', metavar='PATH',
+            help='Path to log file. Default is no logs')
+    parser.add_argument('--ptokenfile', action='store', default=PAGE_TOKEN_FILE, metavar='PATH',
+            help="Path to page token file. Default is \"{}\" in %(prog)s's parent folder".
+                    format(os.path.basename(PAGE_TOKEN_FILE)))
+    parser.add_argument('--credfile', action='store', default=CREDENTIAL_FILE, metavar='PATH',
+            help="Path to OAuth2Credentials file. Default is %(default)s")
     flags = parser.parse_args()
     if flags.days < 0:
         parser.error('argument --days must be nonnegative')
@@ -90,26 +123,26 @@ def parse_cmdline():
         parser.error('argument --timeout must be nonnegative')
     return flags
 
-def configure_logs(logDir):
-    logger = logging.getLogger('dtad')
+def configure_logs(logPath):
+    logger = logging.getLogger('gdtc')
     logger.setLevel(logging.INFO)
-    if not logDir:
+    if not logPath:
         return logger
-    logDir = logDir.strip('"')
-    logPath = os.path.join(logDir, LOG_NAME)
+    logPath = logPath.strip('"')
+    os.makedirs(os.path.dirname(logPath), exist_ok=True)
     open(logPath, 'a').close()
     fileHandler = logging.FileHandler(
         logPath, mode='a', encoding='utf-8')
     logger.addHandler(fileHandler)
     return logger
 
-def build_service(flags=None):
+def build_service(flags):
     credentials = get_credentials(flags)
     http = credentials.authorize(httplib2.Http())
     service = discovery.build('drive', 'v3', http=http)
     return service
 
-def get_credentials(flags=None):
+def get_credentials(flags):
     """Gets valid user credentials from storage.
 
     If nothing has been stored, or if the stored credentials are invalid,
@@ -118,42 +151,22 @@ def get_credentials(flags=None):
     Returns:
         Credentials, the obtained credential.
     """
-    os.makedirs(CREDENTIAL_DIR, exist_ok=True)
-    credential_path = os.path.join(CREDENTIAL_DIR, 'google-drive-trash-cleaner.json')
-    store = Storage(credential_path)
-    credentials = store.get()
+    os.makedirs(os.path.dirname(flags.credfile), exist_ok=True)
+    store = Storage(flags.credfile)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        credentials = store.get()
     if not credentials or credentials.invalid:
-        flow = client.OAuth2WebServerFlow(
-                client_id = CLIENT_ID,
-                client_secret = CLIENT_SECRET,
-                scope = SCOPE,
-                redirect_uri = REDIRECT_URI,
-                token_uri = TOKEN_URI,
-                auth_uri = AUTH_URI,
-                revoke_uri = REVOKE_URI,
-                pkce = True,
-                )
+        flow = client.OAuth2WebServerFlow(**CLIENT_CREDENTIAL)
         credentials = tools.run_flow(flow, store, flags)
-        logging.getLogger('dtad').info('Storing credentials to ' + credential_path)
+        logging.getLogger('gdtc').info('Storing credentials to ' + flags.credfile)
     return credentials
-
-def get_stored_token():
-    try:
-        with open(PAGE_TOKEN_FILE, 'r', encoding='utf-8') as f:
-            pageToken = int(f.read())
-    except (FileNotFoundError, ValueError):
-        pageToken = 0
-    return pageToken
-
-def store_future_token(futurePageToken):
-    with open(PAGE_TOKEN_FILE, 'w', encoding='utf-8') as f:
-        f.write(str(futurePageToken))
 
 def get_deletion_list(service, pageToken, maxTrashDays, timeout):
     """Get list of files to be deleted and page token for future use.
     
-    deletionList, futurePageToken = get_deletion_list(service, pageToken,
-                                                    maxTrashDays, timeout)
+    deletionList, pageTokenBefore, pageTokenAfter
+        = get_deletion_list(service, pageToken, maxTrashDays, timeout)
     
     Iterate through Google Drive change list to find trashed files in order 
     of trash time. Return a list of files trashed more than maxTrashDays 
@@ -167,12 +180,15 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
     deletionList:   List of trashed files to be deleted, in ascending order of 
                     trash time. Each file is represented as a dictionary with 
                     keys {'fileId', 'time', 'name'}.
-    futurePageToken:
+    pageTokenBefore:
                     An integer representing a point in Drive change list, 
-                    >= 'pageToken'. If all files in 'deletionList' are deleted
-                    or if 'deletionList' is empty, it can be used as 
-                    'pageToken' in a future call of this function; if not, it 
-                    should be discarded.
+                    >= 'pageToken'.
+                    This page token is before everything in deletionList. Can 
+                    be used as future pageToken no matter what.
+    pageTokenAfter: An integer representing a point in Drive change list, 
+                    >= 'pageToken'.
+                    Can be used as future pageToken only if everything in 
+                    deletionList is deleted.
     """
     response = execute_request(service.changes().getStartPageToken(), timeout)
     latestPageToken = int(response.get('startPageToken'))
@@ -180,6 +196,7 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
     deletionList = []
     if not pageToken:
         pageToken = 1
+    pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
     while pageToken:
         if latestPageToken - int(pageToken) < PAGE_SIZE_SWITCH_THRESHOLD:
@@ -195,12 +212,14 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
         for item in items:
             itemTime = parse_time(item['time'])
             if currentTime - itemTime < maxTrashDays*24*3600:
-                return deletionList, pageToken
+                return deletionList, pageTokenBefore, pageToken
             if item['file']['explicitlyTrashed']:
                 deletionList.append({'fileId': item['fileId'], 'time': item['time'],
                                         'name': item['file']['name']})
         pageToken = response.get('nextPageToken')
-    return deletionList, int(response.get('newStartPageToken'))
+        if not deletionList:
+            pageTokenBefore = pageToken
+    return deletionList, pageTokenBefore, int(response.get('newStartPageToken'))
 
 def delete_old_files(service, deletionList, flags):
     """Print and delete files in deletionList
@@ -217,7 +236,7 @@ def delete_old_files(service, deletionList, flags):
     listEmpty:      Return True if deletionList is either empty on input or 
                     emptied by this function, False otherwise.
     """
-    logger = logging.getLogger('dtad')
+    logger = logging.getLogger('gdtc')
     if not deletionList:
         print('No files to be deleted')
         return True
