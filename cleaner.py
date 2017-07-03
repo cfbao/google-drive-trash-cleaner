@@ -204,6 +204,7 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
         pageToken = 1
     pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
+    progress = ScanProgress()
     while pageToken:
         if latestPageToken - int(pageToken) < PAGE_SIZE_SWITCH_THRESHOLD:
             pageSize = PAGE_SIZE_SMALL
@@ -218,13 +219,16 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
         for item in items:
             itemTime = parse_time(item['time'])
             if currentTime - itemTime < maxTrashDays*24*3600:
+                progress.clear_line()
                 return deletionList, pageTokenBefore, pageToken
+            progress.print(item['time'])
             if item['file']['explicitlyTrashed']:
                 deletionList.append({'fileId': item['fileId'], 'time': item['time'],
                                         'name': item['file']['name']})
         pageToken = response.get('nextPageToken')
         if not deletionList:
             pageTokenBefore = pageToken
+    progress.clear_line()
     return deletionList, pageTokenBefore, int(response.get('newStartPageToken'))
 
 def delete_old_files(service, deletionList, flags):
@@ -264,6 +268,21 @@ def delete_old_files(service, deletionList, flags):
         logger.info(item['time'] + ''.ljust(4) + item['name'])
     print('Files successfully deleted')
     return True
+
+class ScanProgress:
+    def __init__(self):
+        self.printed = "0000-00-00"
+    
+    def print(self, timeStr):
+        """print yyyy-mm-dd only if not yet printed"""
+        ymd = timeStr[:10]
+        if ymd > self.printed:
+            print('\rScanning files trashed on ' + ymd, end='')
+            self.printed = ymd
+    
+    def clear_line(self):
+        if self.printed > '0000-00-00':
+            print('\r' + ''.ljust(40) + '\r', end='')
 
 def execute_request(request, timeout=TIMEOUT_DEFAULT):
     """Execute Google API request
