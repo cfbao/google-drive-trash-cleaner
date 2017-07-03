@@ -45,9 +45,6 @@ class TimeoutError(Exception):
 
 class PageTokenFile:
     def __init__(self, filePath):
-        dir = os.path.dirname(filePath)
-        if dir.strip():
-            os.makedirs(dir, exist_ok=True)
         self.path = filePath
     
     def get(self):
@@ -123,6 +120,13 @@ def parse_cmdline():
         parser.error('argument --days must be nonnegative')
     if flags.timeout < 0:
         parser.error('argument --timeout must be nonnegative')
+    if flags.logfile and flags.logfile.strip():
+        flags.logfile = os.path.realpath(flags.logfile)
+        os.makedirs(os.path.dirname(flags.logfile),    exist_ok=True)
+    flags.ptokenfile = os.path.realpath(flags.ptokenfile)
+    flags.credfile   = os.path.realpath(flags.credfile)
+    os.makedirs(os.path.dirname(flags.ptokenfile), exist_ok=True)
+    os.makedirs(os.path.dirname(flags.credfile),   exist_ok=True)
     return flags
 
 def configure_logs(logPath):
@@ -131,9 +135,6 @@ def configure_logs(logPath):
     if not logPath:
         return logger
     logPath = logPath.strip('"')
-    dir = os.path.dirname(logPath)
-    if dir.strip():
-        os.makedirs(dir, exist_ok=True)
     open(logPath, 'a').close()
     fileHandler = logging.FileHandler(
         logPath, mode='a', encoding='utf-8')
@@ -155,9 +156,6 @@ def get_credentials(flags):
     Returns:
         Credentials, the obtained credential.
     """
-    dir = os.path.dirname(flags.credfile)
-    if dir.strip():
-        os.makedirs(dir, exist_ok=True)
     store = Storage(flags.credfile)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -165,7 +163,7 @@ def get_credentials(flags):
     if not credentials or credentials.invalid:
         flow = client.OAuth2WebServerFlow(**CLIENT_CREDENTIAL)
         credentials = tools.run_flow(flow, store, flags)
-        logging.getLogger('gdtc').info('Storing credentials to ' + flags.credfile)
+        print('credential file saved at\n\t' + flags.credfile)
     return credentials
 
 def get_deletion_list(service, pageToken, maxTrashDays, timeout):
