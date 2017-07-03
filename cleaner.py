@@ -45,7 +45,9 @@ class TimeoutError(Exception):
 
 class PageTokenFile:
     def __init__(self, filePath):
-        os.makedirs(os.path.dirname(filePath), exist_ok=True)
+        dir = os.path.dirname(filePath)
+        if dir.strip():
+            os.makedirs(dir, exist_ok=True)
         self.path = filePath
     
     def get(self):
@@ -129,7 +131,9 @@ def configure_logs(logPath):
     if not logPath:
         return logger
     logPath = logPath.strip('"')
-    os.makedirs(os.path.dirname(logPath), exist_ok=True)
+    dir = os.path.dirname(logPath)
+    if dir.strip():
+        os.makedirs(dir, exist_ok=True)
     open(logPath, 'a').close()
     fileHandler = logging.FileHandler(
         logPath, mode='a', encoding='utf-8')
@@ -151,7 +155,9 @@ def get_credentials(flags):
     Returns:
         Credentials, the obtained credential.
     """
-    os.makedirs(os.path.dirname(flags.credfile), exist_ok=True)
+    dir = os.path.dirname(flags.credfile)
+    if dir.strip():
+        os.makedirs(dir, exist_ok=True)
     store = Storage(flags.credfile)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
