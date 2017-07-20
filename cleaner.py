@@ -1,3 +1,11 @@
+# Copyright (C) 2017 - Chenfeng Bao
+#
+# This program is free software; you can redistribute it and/or modify it 
+# under the terms of the GNU General Public License; either version 3 of 
+# the License, or (at your option) any later version.
+# You should have received a copy of the GNU General Public License 
+# along with this program; if not, see <http://www.gnu.org/licenses>.
+
 import httplib2
 import os
 import sys
@@ -113,7 +121,10 @@ def parse_cmdline():
     parser.add_argument('--noprogress', action='store_true',
             help="Don't show scanning progress. Useful when directing output to files.")
     parser.add_argument('--fullpath', action='store_true',
-            help="Show full path to files. May be slow for a large number of files.")
+            help="Show full path to files. May be slow for a large number of files. "
+                "NOTE: the path shown is the 'current' path, "
+                "may be different from the original path (when trashing) "
+                "if the original parent folder has moved.")
     parser.add_argument('--logfile', action='store', metavar='PATH',
             help='Path to log file. Default is no logs')
     parser.add_argument('--ptokenfile', action='store', default=PAGE_TOKEN_FILE, metavar='PATH',
@@ -190,6 +201,13 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
     deletionList:   List of trashed files to be deleted, in ascending order of 
                     trash time. Each file is represented as a dictionary with 
                     keys {'fileId', 'time', 'name'}.
+    flags:          Flags parsed from command line. Should contain the 
+                    following attributes:
+                    --noprogress    don't show scanning progress
+                    --fullpath      show full path
+                    --mydriveonly   restrict to my drive
+                    --timeout       timeout in seconds
+                    --days          maximum days in trash
     pageTokenBefore:
                     An integer representing a point in Drive change list, 
                     >= 'pageToken'.
@@ -252,7 +270,7 @@ def delete_old_files(service, deletionList, flags):
     deletionList:   List of trashed files to be deleted, in ascending order of 
                     trash time. Each file is represented as a dictionary with 
                     keys {'fileId', 'time', 'name'}.
-    flags:          Flags as interpreted from command line arguments. In 
+    flags:          Flags parsed from command line arguments. In 
                     particular, automatic deletion (no user prompt) and view-
                     only mode (print but don't delete) are supported.
     listEmpty:      Return True if deletionList is either empty on input or 
@@ -277,7 +295,7 @@ def delete_old_files(service, deletionList, flags):
     return True
 
 class ScanProgress:
-    def __init__(self, noProgress=False):
+    def __init__(self, noProgress):
         self.printed = "0000-00-00"
         self.noItemYet = True
         self.noProgress = noProgress
@@ -292,6 +310,7 @@ class ScanProgress:
             self.printed = ymd
     
     def found(self, time, name):
+        """found an item, print its info"""
         if not self.noProgress:
             print('\r' + ''.ljust(40) + '\r', end='')
         if self.noItemYet:
@@ -308,15 +327,25 @@ class ScanProgress:
 class PathFinder:
     def __init__(self, service, cache=None):
         self.service = service
+    # each item in self.cache is a list with 2 elements
+    # self.cache[id][0] is the full path of id
+    # self.cache[id][1] is the number of times id has been queried
         if cache:
             self.cache = cache
         else:
             self.cache = dict()
+    # self.expanded contains all ids that have all their children cached
         self.expanded = set()
     
     def get_path(self, id, fileRes=None):
+        """Find the full path for id
+        
+        fileRes:    File resource for id. 
+                    Must have 'name' and 'parents' attributes if available.
+                    If None or unspecified, an API call is made to query"""
         if id in self.cache:
             if self.cache[id][1]>1 and id not in self.expanded:
+                # find and cache all children if id is requested more than once
                 self.expand_cache(id)
             self.cache[id][1] += 1
             return self.cache[id][0]
@@ -342,6 +371,8 @@ class PathFinder:
                     pageSize=1000)
             response = execute_request(request)
             for file in response['files']:
+                if file['id'] in self.cache:
+                    continue
                 self.cache[file['id']] = [self.cache[id][0] + os.sep + file['name'], 0]
             try:
                 npt = response['nextPageToken']

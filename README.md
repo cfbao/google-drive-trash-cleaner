@@ -8,7 +8,7 @@ This script helps you safely cleanup Google Drive's trash by deleting only files
 
 ## Dependencies
 To use the Python script directly
-* Python 3 (tested with Python 3.5+)
+* Python 3.5+
 * package *google-api-python-client*  
 run `pip install --upgrade google-api-python-client` to install
 
@@ -39,8 +39,9 @@ You can specify a custom location or name for the `page_token` file by using the
 ### More options
 More command line options are available. You can read about them by running `cleaner --help`.
 ```
-usage: cleaner.py [-h] [-a] [-v] [-d #] [-t SECS] [--logfile PATH]
-                  [--ptokenfile PATH] [--credfile PATH]
+usage: cleaner.py [-h] [-a] [-v] [-d #] [-t SECS] [-m] [--noprogress]
+                  [--fullpath] [--logfile PATH] [--ptokenfile PATH]
+                  [--credfile PATH]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -52,6 +53,14 @@ optional arguments:
                         before being deleted. Default is 30
   -t SECS, --timeout SECS
                         Specify timeout period in seconds. Default is 300
+  -m, --mydriveonly     Only delete files in the 'My Drive' hierarchy,
+                        excluding those in 'Computers' etc.
+  --noprogress          Don't show scanning progress. Useful when directing
+                        output to files.
+  --fullpath            Show full path to files. May be slow for a large
+                        number of files. NOTE: the path shown is the 'current'
+                        path, may be different from the original path (when
+                        trashing) if the original parent folder has moved.
   --logfile PATH        Path to log file. Default is no logs
 ```
 
