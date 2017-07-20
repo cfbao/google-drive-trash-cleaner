@@ -110,6 +110,8 @@ def parse_cmdline():
             help='Specify timeout period in seconds. Default is %(default)s')
     parser.add_argument('-m', '--mydriveonly', action='store_true',
             help="Only delete files in the 'My Drive' hierarchy, excluding those in 'Computers' etc.")
+    parser.add_argument('--noprogress', action='store_true',
+            help="Don't show scanning progress. Useful when directing output to files.")
     parser.add_argument('--fullpath', action='store_true',
             help="Show full path to files. May be slow for a large number of files.")
     parser.add_argument('--logfile', action='store', metavar='PATH',
@@ -206,7 +208,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
         pageToken = 1
     pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
-    progress = ScanProgress()
+    progress = ScanProgress(noProgress=flags.noprogress)
     if not pathFinder and flags.fullpath:
         pathFinder = PathFinder(service)
     while pageToken:
@@ -275,28 +277,32 @@ def delete_old_files(service, deletionList, flags):
     return True
 
 class ScanProgress:
-    def __init__(self):
+    def __init__(self, noProgress=False):
         self.printed = "0000-00-00"
         self.noItemYet = True
+        self.noProgress = noProgress
     
     def print_time(self, timeStr):
         """print yyyy-mm-dd only if not yet printed"""
+        if self.noProgress:
+            return
         ymd = timeStr[:10]
         if ymd > self.printed:
             print('\rScanning files trashed on ' + ymd, end='')
             self.printed = ymd
     
     def found(self, time, name):
-        print('\r' + ''.ljust(40) + '\r', end='')
+        if not self.noProgress:
+            print('\r' + ''.ljust(40) + '\r', end='')
         if self.noItemYet:
             print('Date trashed'.ljust(24) + ''.ljust(4) + 'File Name/Path')
             self.noItemYet = False
         print(time + ''.ljust(4) + name)
-        print('\rScanning files trashed on ' + self.printed, end='')
+        if not self.noProgress:
+            print('\rScanning files trashed on ' + self.printed, end='')
     
     def clear_line(self):
-        if self.printed > '0000-00-00':
-            print('\r' + ''.ljust(40) + '\r', end='')
+        print('\r' + ''.ljust(40) + '\r', end='')
         print()
 
 class PathFinder:
