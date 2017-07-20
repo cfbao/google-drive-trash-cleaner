@@ -207,7 +207,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
     pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
     progress = ScanProgress()
-    if not pathFinder:
+    if not pathFinder and flags.fullpath:
         pathFinder = PathFinder(service)
     while pageToken:
         if latestPageToken - int(pageToken) < PAGE_SIZE_SWITCH_THRESHOLD:
@@ -216,7 +216,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
                     pageToken=pageToken, includeRemoved=False,
                     pageSize=pageSize, restrictToMyDrive=flags.mydriveonly,
                     fields='nextPageToken,newStartPageToken,'
-                    'changes(fileId,time,file(name,explicitlyTrashed))'
+                    'changes(fileId,time,file(name,parents,explicitlyTrashed))'
                     )
         response = execute_request(request, flags.timeout)
         items = response.get('changes', [])
@@ -228,6 +228,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
             progress.print(item['time'])
             if item['file']['explicitlyTrashed']:
                 if flags.fullpath:
+                    # disp = pathFinder.get_path(item['fileId'], fileRes=item['file'])
                     disp = pathFinder.get_path(item['fileId'])
                 else:
                     disp = item['file']['name']
@@ -299,18 +300,42 @@ class PathFinder:
             self.cache = cache
         else:
             self.cache = dict()
+        self.expanded = set()
     
-    def get_path(self, id):
+    def get_path(self, id, fileRes=None):
         if id in self.cache:
-            return self.cache[id]
-        request = self.service.files().get(fileId=id, fields='name,parents')
-        response = execute_request(request)
+            if self.cache[id][1]>1 and id not in self.expanded:
+                self.expand_cache(id)
+            self.cache[id][1] += 1
+            return self.cache[id][0]
+        if not fileRes:
+            request = self.service.files().get(fileId=id, fields='name,parents')
+            fileRes = execute_request(request)
         try:
-            parentId = response['parents'][0]
-            self.cache[id] = self.get_path(parentId) + os.sep + response['name']
+            parentId = fileRes['parents'][0]
+            self.cache[id] = [self.get_path(parentId) + os.sep + fileRes['name'], 1]
         except KeyError:
-            self.cache[id] = response['name']
-        return self.cache[id]
+            self.cache[id] = [fileRes['name'], 1]
+        return self.cache[id][0]
+    
+    def expand_cache(self, id):
+        if id in self.expanded:
+            return
+        npt = None
+        while True:
+            request = self.service.files().list(
+                    q="'{:}' in parents and trashed=true".format(id), 
+                    pageToken=npt, 
+                    fields="files(id,name),nextPageToken",
+                    pageSize=1000)
+            response = execute_request(request)
+            for file in response['files']:
+                self.cache[file['id']] = [self.cache[id][0] + os.sep + file['name'], 0]
+            try:
+                npt = response['nextPageToken']
+            except KeyError:
+                break
+        self.expanded.add(id)
     
     def clear():
         self.cache.clear()
