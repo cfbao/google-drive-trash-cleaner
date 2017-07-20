@@ -68,7 +68,7 @@ def main():
             service = build_service(flags)
             pageToken = pageTokenFile.get()
             deletionList, pageTokenBefore, pageTokenAfter = \
-                get_deletion_list(service, pageToken, flags.days, flags.timeout)
+                get_deletion_list(service, pageToken, flags)
             pageTokenFile.save(pageTokenBefore)
             listEmpty = delete_old_files(service, deletionList, flags)
         except client.HttpAccessTokenRefreshError:
@@ -108,6 +108,10 @@ def parse_cmdline():
                  'before being deleted. Default is %(default)s')
     parser.add_argument('-t', '--timeout', action='store', type=int, default=TIMEOUT_DEFAULT, metavar='SECS',
             help='Specify timeout period in seconds. Default is %(default)s')
+    parser.add_argument('-m', '--mydriveonly', action='store_true',
+            help="Only delete files in the 'My Drive' hierarchy, excluding those in 'Computers' etc.")
+    parser.add_argument('--fullpath', action='store_true',
+            help="Show full path to files. May be slow for a large number of files.")
     parser.add_argument('--logfile', action='store', metavar='PATH',
             help='Path to log file. Default is no logs')
     parser.add_argument('--ptokenfile', action='store', default=PAGE_TOKEN_FILE, metavar='PATH',
@@ -166,7 +170,7 @@ def get_credentials(flags):
         print('credential file saved at\n\t' + flags.credfile)
     return credentials
 
-def get_deletion_list(service, pageToken, maxTrashDays, timeout):
+def get_deletion_list(service, pageToken, flags, pathFinder=None):
     """Get list of files to be deleted and page token for future use.
     
     deletionList, pageTokenBefore, pageTokenAfter
@@ -194,7 +198,7 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
                     Can be used as future pageToken only if everything in 
                     deletionList is deleted.
     """
-    response = execute_request(service.changes().getStartPageToken(), timeout)
+    response = execute_request(service.changes().getStartPageToken(), flags.timeout)
     latestPageToken = int(response.get('startPageToken'))
     currentTime = time.time()
     deletionList = []
@@ -203,26 +207,32 @@ def get_deletion_list(service, pageToken, maxTrashDays, timeout):
     pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
     progress = ScanProgress()
+    if not pathFinder:
+        pathFinder = PathFinder(service)
     while pageToken:
         if latestPageToken - int(pageToken) < PAGE_SIZE_SWITCH_THRESHOLD:
             pageSize = PAGE_SIZE_SMALL
         request = service.changes().list(
                     pageToken=pageToken, includeRemoved=False,
-                    pageSize=pageSize, restrictToMyDrive=True,
+                    pageSize=pageSize, restrictToMyDrive=flags.mydriveonly,
                     fields='nextPageToken,newStartPageToken,'
                     'changes(fileId,time,file(name,explicitlyTrashed))'
                     )
-        response = execute_request(request, timeout)
+        response = execute_request(request, flags.timeout)
         items = response.get('changes', [])
         for item in items:
             itemTime = parse_time(item['time'])
-            if currentTime - itemTime < maxTrashDays*24*3600:
+            if currentTime - itemTime < flags.days*24*3600:
                 progress.clear_line()
                 return deletionList, pageTokenBefore, pageToken
             progress.print(item['time'])
             if item['file']['explicitlyTrashed']:
+                if flags.fullpath:
+                    disp = pathFinder.get_path(item['fileId'])
+                else:
+                    disp = item['file']['name']
                 deletionList.append({'fileId': item['fileId'], 'time': item['time'],
-                                        'name': item['file']['name']})
+                                        'name': disp})
         pageToken = response.get('nextPageToken')
         if not deletionList:
             pageTokenBefore = pageToken
@@ -249,7 +259,7 @@ def delete_old_files(service, deletionList, flags):
         print('No files to be deleted')
         return True
     
-    print('Date trashed'.ljust(24) + ''.ljust(4) + 'Filename')
+    print('Date trashed'.ljust(24) + ''.ljust(4) + 'File Name/Path')
     for item in deletionList:
         print(item['time'] + ''.ljust(4) + item['name'])
     print('')
@@ -281,6 +291,29 @@ class ScanProgress:
     def clear_line(self):
         if self.printed > '0000-00-00':
             print('\r' + ''.ljust(40) + '\r', end='')
+
+class PathFinder:
+    def __init__(self, service, cache=None):
+        self.service = service
+        if cache:
+            self.cache = cache
+        else:
+            self.cache = dict()
+    
+    def get_path(self, id):
+        if id in self.cache:
+            return self.cache[id]
+        request = self.service.files().get(fileId=id, fields='name,parents')
+        response = execute_request(request)
+        try:
+            parentId = response['parents'][0]
+            self.cache[id] = self.get_path(parentId) + os.sep + response['name']
+        except KeyError:
+            self.cache[id] = response['name']
+        return self.cache[id]
+    
+    def clear():
+        self.cache.clear()
 
 def execute_request(request, timeout=TIMEOUT_DEFAULT):
     """Execute Google API request
