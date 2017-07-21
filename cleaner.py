@@ -241,7 +241,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
                     pageToken=pageToken, includeRemoved=False,
                     pageSize=pageSize, restrictToMyDrive=flags.mydriveonly,
                     fields='nextPageToken,newStartPageToken,'
-                    'changes(fileId,time,file(name,parents,explicitlyTrashed))'
+                    'changes(fileId,time,file(name,parents,explicitlyTrashed,ownedByMe))'
                     )
         response = execute_request(request, flags.timeout)
         items = response.get('changes', [])
@@ -251,10 +251,9 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
                 progress.clear_line()
                 return deletionList, pageTokenBefore, pageToken
             progress.print_time(item['time'])
-            if item['file']['explicitlyTrashed']:
+            if item['file']['explicitlyTrashed'] and item['file']['ownedByMe']:
                 if flags.fullpath:
-                    # disp = pathFinder.get_path(item['fileId'], fileRes=item['file'])
-                    disp = pathFinder.get_path(item['fileId'])
+                    disp = pathFinder.get_path(item['fileId'], fileRes=item['file'])
                 else:
                     disp = item['file']['name']
                 progress.found(item['time'], disp)
