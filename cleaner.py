@@ -430,4 +430,7 @@ def parse_time(rfc3339):
     return calendar.timegm(time.strptime(time_str, '%Y-%m-%dT%H:%M:%S'))
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('\nStopped by user')
