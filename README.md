@@ -39,9 +39,9 @@ You can specify a custom location or name for the `page_token` file by using the
 ### More options
 More command line options are available. You can read about them by running `cleaner --help`.
 ```
-usage: cleaner.py [-h] [-a] [-v] [-d #] [-t SECS] [-m] [--noprogress]
-                  [--fullpath] [--logfile PATH] [--ptokenfile PATH]
-                  [--credfile PATH]
+usage: cleaner [-h] [-a] [-v] [-d #] [-q] [-t SECS] [-m] [--noprogress]
+               [--fullpath] [--logfile PATH] [--ptokenfile PATH]
+               [--credfile PATH]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -51,6 +51,7 @@ optional arguments:
                         deleting them
   -d #, --days #        Number of days files can remain in Google Drive trash
                         before being deleted. Default is 30
+  -q, --quiet           Quiet mode. Only show file count.
   -t SECS, --timeout SECS
                         Specify timeout period in seconds. Default is 300
   -m, --mydriveonly     Only delete files in the 'My Drive' hierarchy,

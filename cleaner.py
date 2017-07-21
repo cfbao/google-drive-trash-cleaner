@@ -114,6 +114,8 @@ def parse_cmdline():
     parser.add_argument('-d', '--days', action='store', type=int, default=30, metavar='#',
             help='Number of days files can remain in Google Drive trash '
                  'before being deleted. Default is %(default)s')
+    parser.add_argument('-q', '--quiet', action='store_true', 
+            help='Quiet mode. Only show file count.')
     parser.add_argument('-t', '--timeout', action='store', type=int, default=TIMEOUT_DEFAULT, metavar='SECS',
             help='Specify timeout period in seconds. Default is %(default)s')
     parser.add_argument('-m', '--mydriveonly', action='store_true',
@@ -140,6 +142,8 @@ def parse_cmdline():
     if flags.logfile and flags.logfile.strip():
         flags.logfile = os.path.realpath(flags.logfile)
         os.makedirs(os.path.dirname(flags.logfile),    exist_ok=True)
+    if flags.quiet and not flags.logfile:
+        flags.fullpath = False
     flags.ptokenfile = os.path.realpath(flags.ptokenfile)
     flags.credfile   = os.path.realpath(flags.credfile)
     os.makedirs(os.path.dirname(flags.ptokenfile), exist_ok=True)
@@ -206,6 +210,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
                     --noprogress    don't show scanning progress
                     --fullpath      show full path
                     --mydriveonly   restrict to my drive
+                    --quiet         don't show individual file info
                     --timeout       timeout in seconds
                     --days          maximum days in trash
     pageTokenBefore:
@@ -226,7 +231,7 @@ def get_deletion_list(service, pageToken, flags, pathFinder=None):
         pageToken = 1
     pageTokenBefore = pageToken
     pageSize = PAGE_SIZE_LARGE
-    progress = ScanProgress(noProgress=flags.noprogress)
+    progress = ScanProgress(quiet=flags.quiet, noProgress=flags.noprogress)
     if not pathFinder and flags.fullpath:
         pathFinder = PathFinder(service)
     while pageToken:
@@ -277,13 +282,18 @@ def delete_old_files(service, deletionList, flags):
                     emptied by this function, False otherwise.
     """
     logger = logging.getLogger('gdtc')
-    if not deletionList:
+    n = len(deletionList)
+    if n == 0:
         print('No files to be deleted')
         return True
     if flags.view:
+        if n == 1:
+            print('{:} file/folder trashed more than {:} days ago'.format(n, flags.days))
+        else:
+            print('{:} file/folder(s) trashed more than {:} days ago'.format(n, flags.days))
         return False
     if not flags.auto:
-        confirmed = ask_usr_confirmation()
+        confirmed = ask_usr_confirmation(n)
         if not confirmed:
             return False
     print('Deleting...')
@@ -295,9 +305,10 @@ def delete_old_files(service, deletionList, flags):
     return True
 
 class ScanProgress:
-    def __init__(self, noProgress):
+    def __init__(self, quiet, noProgress):
         self.printed = "0000-00-00"
         self.noItemYet = True
+        self.quiet = quiet
         self.noProgress = noProgress
     
     def print_time(self, timeStr):
@@ -311,6 +322,8 @@ class ScanProgress:
     
     def found(self, time, name):
         """found an item, print its info"""
+        if self.quiet:
+            return
         if not self.noProgress:
             print('\r' + ''.ljust(40) + '\r', end='')
         if self.noItemYet:
@@ -400,9 +413,12 @@ def execute_request(request, timeout=TIMEOUT_DEFAULT):
             return response
     raise TimeoutError
 
-def ask_usr_confirmation():
+def ask_usr_confirmation(n):
     while True:
-        usrInput = input('Confirm deleting these files? (Y/N)\n')
+        if n == 1:
+            usrInput = input('Confirm deleting this file/folder? (Y/N)\n')
+        else:
+            usrInput = input('Confirm deleting these {:} files/folders? (Y/N)\n'.format(n))
         if usrInput.strip().lower() == 'y':
             return True
         elif usrInput.strip().lower() == 'n':
