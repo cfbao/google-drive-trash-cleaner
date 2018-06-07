@@ -9,6 +9,8 @@
 import httplib2
 import os
 import sys
+import io
+import builtins
 import argparse
 import time
 import calendar
@@ -66,6 +68,53 @@ class PageTokenFile:
     def save(self, pageToken):
         with open(self.path, 'w', encoding='utf-8') as f:
             f.write(str(pageToken))
+
+class SafePrinter:
+    class _SafeTextWrapper:
+        def __init__(self, unsafeTextFile, error):
+            if not isinstance(unsafeTextFile, io.TextIOBase):
+                raise TypeError()
+            self.unsafeTextFile = unsafeTextFile
+            self.encoding = unsafeTextFile.encoding
+            self.error = error
+        def write(self, text):
+            self.unsafeTextFile.write(text.encode(self.encoding, self.error).decode(self.encoding, 'ignore'))
+        def flush(self):
+            self.unsafeTextFile.flush()
+    
+    def __init__(self, defaultFile=None, error='backslashreplace'):
+        if error not in ['replace', 'xmlcharrefreplace', 'backslashreplace', 'namereplace']:
+            raise ValueError("`error` must be one of 'replace', 'xmlcharrefreplace', 'backslashreplace', 'namereplace'")
+        self.defaultFile = defaultFile or sys.stdout
+        self.error = error
+        self.wrappers = {id(self.defaultFile): SafePrinter._SafeTextWrapper(self.defaultFile, self.error)}
+    
+    def get_print(self):
+        def print(*args, **kwargs):
+            file = kwargs.get('file') or self.defaultFile
+            if id(file) not in self.wrappers:
+                self.wrappers[id(file)] = SafePrinter._SafeTextWrapper(file, self.error)
+            kwargs['file'] = self.wrappers[id(file)]
+            builtins.print(*args, **kwargs)
+        return print
+    
+    def clear(self):
+        delList = []
+        for id in self.wrappers:
+            if self.wrappers[id].unsafeTextFile.closed:
+                delList.append(id)
+        for id in delList:
+            del self.wrappers[id]
+    
+    def purge(self):
+        self.wrappers.clear()
+        self.wrappers = {id(self.defaultFile): SafePrinter._SafeTextWrapper(self.defaultFile, self.error)}
+
+try:
+    print = SafePrinter().get_print()
+except TypeError:
+    sys.stderr.write('`SafePrinter` failed to initialize. Please contact the developer.\n')
+    sys.exit(-1)
 
 def main():
     flags = parse_cmdline()
