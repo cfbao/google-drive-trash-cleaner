@@ -9,8 +9,10 @@ This script helps you safely cleanup Google Drive's trash by deleting only files
 ## Dependencies
 To use the Python script directly
 * Python 3.5+
-* package *google-api-python-client*  
-run `pip install --upgrade google-api-python-client` to install
+* Package *google-api-python-client* and *oauth2client*. Run  
+`pip install --upgrade google-api-python-client` and  
+`pip install --upgrade oauth2client`  
+to install
 
 To use the Windows binary (download on the [releases](https://github.com/cfbao/google-drive-trash-cleaner/releases) page)
 * Windows update [KB2999226](https://support.microsoft.com/en-gb/help/2999226/update-for-universal-c-runtime-in-windows "Update for Universal C Runtime in Windows")
