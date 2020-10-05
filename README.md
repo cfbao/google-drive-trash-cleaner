@@ -1,11 +1,9 @@
 # Google Drive Trash Cleaner
 
-> :warning: This script has reached Google's user limit for an unverified app. If you're new to this script, you likely won't be able to authorize it.
-As a workaround, please follow [rclone's docs](https://rclone.org/drive/#making-your-own-client-id) to obtain your own Google client id & secret,
-and place them in the [`CLIENT_CREDENTIAL` variable](https://github.com/cfbao/google-drive-trash-cleaner/blob/master/cleaner.py#L35-L37).
-~Meanwhile, I will try not to be too lazy, and get this script verified.~
+> :warning: ***This project is deprecated***.
 >
-> The chance of this script getting verified seems very slim according to Google's new policies. I will likely restructure it to allow easier injection of user-provided client IDs & secrets, and remove my own client ID & secret from the script entirely.
+> [Google Drive trash items will be automatically deleted after 30 days starting on October 13, 2020](https://gsuiteupdates.googleblog.com/2020/09/drive-trash-auto-delete-30-days.html).
+This project hence no longer has a purpose, and will not be maintained.
 
 Unlike many other cloud storage services, Google Drive doesn't auto delete files in trash/bin even after they've been there for a long time.
 There isn't even a way to check when a file was trashed.
